@@ -1,0 +1,83 @@
+// New Keyword Identifier V1
+// Dit script bekijkt of er converterende zoektermen zijn die nog niet in het account staan als zoekwoord.
+// Hierin wordt gekeken naar een bepaalde periode waarin de zoektermen met een gegeven aantal vertoningen hebben behaald en conversies hebben gehaald. 
+// Tegelijkertijd wordt er gekeken of deze zoektermen niet al aanwezig zijn als zoekwoord
+
+var mailAdress = 'mailadress'; //vul hier je e-mailadres in
+var periode = 'LAST_MONTH' // Vul hierin welke periode de zoektermen moeten worden opgehaald. Mogelijke periodes: TODAY, YESTERDAY, LAST_7_DAYS, THIS_WEEK_SUN_TODAY, LAST_WEEK, LAST_14_DAYS, LAST_30_DAYS, LAST_BUSINESS_WEEK, LAST_WEEK_SUN_SAT, THIS_MONTH, LAST_MONTH, ALL_TIME, - YYYYMMDD”, “YYYYMMDD
+var minimaleImpressies = 1 // Minimale hoeveelheid impressies die een zoekterm in de betreffende periode gehad moet hebben
+
+// Hieronder niks aanpassen.
+
+function main() {
+  var accountName = AdsApp.currentAccount().getName();
+  var spreadsheetTitle = `${accountName} - New keyword identifier`;
+  var spreadsheet = SpreadsheetApp.create(spreadsheetTitle);
+  var spreadsheetUrl = spreadsheet.getUrl();
+  var searchTermsData = [['Query', 'Impressions', 'Clicks', 'Conversions', 'Cost', 'CostPerConversion', 'ConversionRate']]; 
+
+  // Haal de zoektermen op die voldoen aan het criteria van de afgelopen 7 dagen.
+  var searchTermReport = AdsApp.report(
+    "SELECT Query, Impressions, Clicks, Conversions, Cost, CostPerConversion, ConversionRate " +
+    "FROM SEARCH_QUERY_PERFORMANCE_REPORT " +
+    "WHERE " +
+      ` Impressions > ${minimaleImpressies} ` +
+      " AND Conversions > 0 " +
+    `DURING ${periode}`);
+
+  // Bouw een lijst op van de opgehaalde zoektermen en bijbehorende metrics.
+  var rows = searchTermReport.rows();
+  while (rows.hasNext()) {
+    var row = rows.next();
+    var searchTerm = row['Query'];
+    var impressions = row['Impressions'];
+    var clicks = row['Clicks'];
+    var conversions = row['Conversions'];
+    var cost = row['Cost'];
+    var costPerConversion = row['CostPerConversion'];
+    var conversionRate = row['ConversionRate'];
+
+    // Voeg de zoektermen en metrics toe aan searchTermsData.
+    searchTermsData.push([searchTerm, impressions, clicks, conversions, cost, costPerConversion, conversionRate]);
+  }
+
+  // Haal de zoekwoorden in het account op.
+  var keywordIterator = AdsApp.keywords().get();
+  var keywords = [];
+
+  while (keywordIterator.hasNext()) {
+    var keyword = keywordIterator.next();
+    keywords.push(keyword.getText());
+  }
+  
+  // Identificeer de zoektermen die niet overeenkomen met de zoekwoorden.
+  var nonMatchingTerms = [];
+
+  for (var i = 0; i < searchTermsData.length; i++) {
+    var searchTermData = searchTermsData[i];
+    var searchTerm = searchTermData[0];
+    if (keywords.indexOf(searchTerm) === -1) {
+      nonMatchingTerms.push(searchTermData);
+    }
+  }
+
+  // Stuur de niet-overeenkomende zoektermen en bijbehorende metrics naar het opgegeven spreadsheet.
+  var sheet = spreadsheet.getActiveSheet();
+  sheet.clear();
+
+  // Voeg de zoektermen en metrics toe aan het spreadsheet.
+  for (var j = 0; j < nonMatchingTerms.length; j++) {
+    sheet.appendRow(nonMatchingTerms[j]);
+  }
+
+  // Aantal gevonden zoektermen
+  var numFoundSearchTerms = nonMatchingTerms.length - 1;
+
+  // Stuur een e-mail met de spreadsheet-URL en het aantal gevonden zoektermen.
+  if (numFoundSearchTerms > 0) {
+    var subject = spreadsheetTitle;
+    var message = `Er zijn ${numFoundSearchTerms} nieuwe mogelijke zoekwoorden gevonden die converteren.\n\nSpreadsheet URL: ${spreadsheetUrl}`;
+    
+    MailApp.sendEmail(mailAdress, subject, message);
+  }
+}
